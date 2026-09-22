@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "port": 18181,
+  "defaultProfile": "openai-api",
+  "clients": {},
+  "credentials": {
+    "openai-key": {"kind": "api_key_store", "provider": "openai", "allowedOrigins": ["https://api.openai.com"]},
+    "claude-key": {"kind": "api_key_store", "provider": "anthropic", "allowedOrigins": ["https://api.anthropic.com"]},
+    "deepseek-key": {"kind": "api_key_store", "provider": "openai_compatible", "allowedOrigins": ["https://api.deepseek.com"]},
+    "mimo-key": {"kind": "api_key_store", "provider": "openai_compatible", "keyHeader": "api-key", "allowedOrigins": ["https://api.xiaomimimo.com"]},
+    "gemini-key": {"kind": "api_key_store", "provider": "openai_compatible", "allowedOrigins": ["https://generativelanguage.googleapis.com"]},
+    "zen-key": {"kind": "api_key_store", "provider": "openai_compatible", "allowedOrigins": ["https://opencode.ai"]},
+    "independent-login": {"kind": "oauth_managed", "provider": "openai_compatible", "registration": "approved-desktop-app", "allowedOrigins": ["https://your-api.example"]}
+  },
+  "oauthRegistrations": {
+    "approved-desktop-app": {
+      "enabled": false,
+      "clientId": "",
+      "authorizationUrl": "https://your-issuer.example/authorize",
+      "tokenUrl": "https://your-issuer.example/token",
+      "redirectUri": "http://127.0.0.1:18181/oauth/callback",
+      "scopes": [],
+      "allowedApiOrigins": ["https://your-api.example"]
+    }
+  },
+  "profiles": {
+    "openai-api": {"label": "OpenAI API", "provider": "openai", "protocol": "responses", "baseUrl": "https://api.openai.com/v1", "model": "set-your-model-id", "credential": "openai-key", "maxOutputTokens": 16000, "timeout": 300},
+    "claude-api": {"label": "Anthropic API", "provider": "anthropic", "protocol": "messages", "baseUrl": "https://api.anthropic.com/v1", "model": "set-your-model-id", "credential": "claude-key", "maxOutputTokens": 16000, "timeout": 300},
+    "deepseek-api": {"label": "DeepSeek", "provider": "openai_compatible", "protocol": "chat_completions", "baseUrl": "https://api.deepseek.com/v1", "model": "set-your-model-id", "credential": "deepseek-key", "reasoningEffort": "low"},
+    "mimo-api": {"label": "Xiaomi MiMo", "provider": "openai_compatible", "protocol": "chat_completions", "baseUrl": "https://api.xiaomimimo.com/v1", "model": "set-your-model-id", "credential": "mimo-key"},
+    "gemini-api": {"label": "Google Gemini", "provider": "openai_compatible", "protocol": "chat_completions", "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai", "modelsUrl": "https://generativelanguage.googleapis.com/v1beta/models", "modelsFormat": "gemini", "model": "set-your-model-id", "credential": "gemini-key", "reasoningEffort": "low"},
+    "zen-api": {"label": "OpenCode Zen", "provider": "openai_compatible", "protocol": "zen", "baseUrl": "https://opencode.ai/zen/v1", "model": "set-your-model-id", "credential": "zen-key"},
+    "independent-oauth": {"label": "Registered independent OAuth", "enabled": false, "provider": "openai_compatible", "protocol": "chat_completions", "baseUrl": "https://your-api.example/v1", "model": "set-your-model-id", "credential": "independent-login", "maxOutputTokens": 6000, "timeout": 180}
+  }
+}

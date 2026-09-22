@@ -1,0 +1,7 @@
+{
+  "auth": "gateway",
+  "connectionFile": "D:\\steam\\steamapps\\common\\Kerbal Space Program\\GameData\\KSPAIHub\\PluginData\\connection.json",
+  "clientId": "KSPAutoCraft",
+  "timeout": 300,
+  "maxCatalogParts": 120
+}

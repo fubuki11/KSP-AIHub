@@ -1,0 +1,40 @@
+// Reference KSPAIHub.dll (Copy Local=false) from your KSP 1.12.5 mod.
+// This is a usage example, not a second plugin compiled into AI Hub.
+using System.Threading;
+using System.Threading.Tasks;
+using KSPAIHub.API;
+using UnityEngine;
+
+public class ExampleAiConsumer : MonoBehaviour
+{
+    private CancellationTokenSource lifetime = new CancellationTokenSource();
+    private Task<string> request;
+
+    public void RequestExplanation(string connectionFile, string gameContext)
+    {
+        // Supply your own stable ID for optional per-Mod overrides.
+        // Omitting the second argument uses global defaults directly.
+        var hub = AiHubClient.FromConnectionFile(connectionFile, "org.vendor.MyCompatibleMod");
+        request = hub.GenerateAsync(new[] {
+            new AiMessage("system", "Explain the game context. Return a JSON object with an explanation string."),
+            new AiMessage("user", gameContext)
+        }, format: "json", cancellation: lifetime.Token);
+    }
+
+    private void Update()
+    {
+        if (request == null || !request.IsCompleted) return;
+        if (!request.IsCanceled && !request.IsFaulted)
+        {
+            var reply = JsonUtility.FromJson<HubReply>(request.Result);
+            if (reply.ok)
+            {
+                // Validate reply.jsonText using your own schema.
+                // Only then consider any user-confirmed game action.
+            }
+        }
+        request = null;
+    }
+
+    private void OnDestroy() { lifetime.Cancel(); lifetime.Dispose(); }
+}
