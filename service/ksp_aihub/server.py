@@ -141,7 +141,7 @@ class Handler(BaseHTTPRequestHandler):
                 hub.auth.callback(query.get("state", [None])[0], query.get("code", [None])[0], query.get("error", [None])[0])
                 result = {"ok": True, "message": "Sign-in completed. Return to KSP AI Hub."}
             elif self.command == "GET" and uri.path == "/v1/health":
-                result = {"ok": True, "apiVersion": 1, "version": __version__}
+                result = {"ok": True, "apiVersion": 1, "version": __version__, "capabilities": ["recovery-reasons", "generation-diagnostics"]}
             elif self.command == "GET" and uri.path == "/v1/profiles":
                 result = hub.profiles()
             elif self.command == "POST" and uri.path == "/v1/profiles":
@@ -169,7 +169,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise HubError("not_found", "Unsupported API route/method.", 404)
             self._reply(200, result)
         except HubError as error:
-            try: self._reply(error.status, {"ok": False, "code": error.code, "message": str(error), "details": error.details, "requestId": request_id})
+            try: self._reply(error.status, {"ok": False, "code": error.code, "message": str(error), "details": error.details, "requestId": error.details.get("requestId", request_id)})
             except OSError: pass
         except (OSError, ValueError, TypeError, AttributeError, KeyError):
             try: self._reply(500, {"ok": False, "code": "internal_error", "message": "Gateway operation failed; sensitive details are not returned.", "requestId": request_id})

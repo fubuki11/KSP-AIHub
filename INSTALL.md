@@ -22,7 +22,7 @@ $ksp = 'D:\steam\steamapps\common\Kerbal Space Program'
 4. 核对 CKAN 归属和全部发布文件的 SHA-256。
 5. 初始化缺失的启动配置；已有模型设置和凭据不会被覆盖。
 
-完成时应显示 `Verified KSPAIHub 0.3.2: ...`。重新打开 CKAN，在 Installed / 已安装筛选中搜索 `KSPAIHub`。
+完成时应显示 `Verified KSPAIHub 0.4.0: ...`。重新打开 CKAN，在 Installed / 已安装筛选中搜索 `KSPAIHub`。
 
 本地 `dist` 中的 ZIP 和仓库索引需要保留，供 CKAN 读取。移动源码后应重新构建，并确认 CKAN 的本地仓库地址。
 

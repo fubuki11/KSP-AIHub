@@ -66,6 +66,35 @@ class OutputTests(unittest.TestCase):
         self.assertEqual(error.exception.details["reasoningTokens"], 6000)
         self.assertNotIn("secret-provider-key", str(error.exception) + json.dumps(error.exception.details))
 
+    def test_repetition_is_explicit_for_json_and_sse_even_if_body_looks_valid(self):
+        for stream in (False, True):
+            self.config.profiles['one']['stream'] = stream
+            if stream:
+                self.stream([{'choices': [{'delta': {'content': '{}'}, 'finish_reason': 'repetition_truncation'}]}])
+            else:
+                self.server.content_type = 'application/json'
+                self.server.reply = json.dumps({'choices': [{'finish_reason': 'repetition_truncation', 'message': {'content': ''}}]}).encode()
+            with self.assertRaises(HubError) as error: self.generate()
+            self.assertEqual(error.exception.code, 'model_repetition')
+            self.assertEqual(error.exception.details['finishReason'], 'repetition_truncation')
+            self.assertEqual(error.exception.details['requestStreaming'], stream)
+            self.assertEqual(error.exception.details['responseStreaming'], stream)
+            self.assertTrue(error.exception.details['recoveryAllowed'])
+
+    def test_unknown_marker_is_preserved_and_secret_echo_is_redacted(self):
+        for reason, shown in (('vendor_new_reason', 'vendor_new_reason'), ('secret-provider-key', 'redacted')):
+            self.server.reply = json.dumps({'choices': [{'finish_reason': reason, 'message': {'content': '{}'}}]}).encode()
+            with self.assertRaises(HubError) as error: self.generate()
+            self.assertEqual(error.exception.code, 'unsupported_finish_reason')
+            self.assertEqual(error.exception.details['finishReason'], shown)
+            self.assertNotIn('secret-provider-key', str(error.exception) + json.dumps(error.exception.details))
+
+    def test_disabled_repetition_policy_prevents_consumer_recovery(self):
+        self.config.profiles['one']['repetitionRecovery'] = 'disabled'
+        self.server.reply = json.dumps({'choices': [{'finish_reason': 'repetition_truncation', 'message': {'content': ''}}]}).encode()
+        with self.assertRaises(HubError) as error: self.generate()
+        self.assertFalse(error.exception.details['recoveryAllowed'])
+
     def test_valid_json_without_completion_is_never_accepted(self):
         self.stream([{"choices": [{"delta": {"content": '{"ok":true}'}}]}])
         with self.assertRaises(HubError) as error: self.generate()
@@ -176,6 +205,59 @@ class GenerationSettingsTests(unittest.TestCase):
                          {"timeout": 601}, {"thinkingMode": "disabled", "reasoningEffort": "low"}):
             with self.assertRaises(HubError): self.hub.set_generation({"profile": "one", "settings": settings})
         with self.assertRaises(HubError): self.hub.generate({"messages": [{"role": "user", "content": "hi"}], "recovery": 2})
+
+    def test_repetition_policy_is_request_local_and_composes_with_budget_recovery(self):
+        self.hub.set_generation({'profile': 'one', 'settings': {'thinkingMode': 'enabled', 'stream': False, 'repetitionRecovery': 'disable_thinking'}})
+        req = {'messages': [{'role': 'user', 'content': 'test'}]}
+        self.hub.generate(req)
+        self.hub.generate(dict(req, recoveryReasons=['model_repetition']))
+        self.hub.generate(dict(req, recoveryReasons=['output_truncated', 'model_repetition']))
+        self.hub.generate(req)
+        profiles = self.adapter.seen
+        self.assertEqual([p['thinkingMode'] for p in profiles], ['enabled', 'disabled', 'disabled', 'enabled'])
+        self.assertEqual([p['maxOutputTokens'] for p in profiles], [16000, 16000, 32000, 16000])
+        self.assertTrue(all(p['stream'] is False for p in profiles))
+        self.assertEqual(self.hub.config.profiles['one']['thinkingMode'], 'enabled')
+
+    def test_low_effort_and_recovery_request_validation(self):
+        self.hub.set_generation({'profile': 'one', 'settings': {'reasoningEffort': 'xhigh', 'repetitionRecovery': 'low_effort'}})
+        req = {'messages': [{'role': 'user', 'content': 'test'}], 'recoveryReasons': ['model_repetition']}
+        self.hub.generate(req)
+        self.assertEqual(self.adapter.seen[-1]['reasoningEffort'], 'low')
+        self.assertEqual(self.hub.config.profiles['one']['reasoningEffort'], 'xhigh')
+        for reasons in ('model_repetition', ['arbitrary'], ['model_repetition'] * 2, [{}]):
+            with self.assertRaises(HubError): self.hub.generate(dict(req, recoveryReasons=reasons))
+        self.hub.set_generation({'profile': 'one', 'settings': {'repetitionRecovery': 'disabled'}})
+        with self.assertRaises(HubError): self.hub.generate(req)
+
+    def test_success_and_error_records_exclude_messages_outputs_and_exception_text(self):
+        from pathlib import Path
+        self.hub.generate({'messages': [{'role': 'user', 'content': 'PRIVATE USER PROMPT'}]})
+        error = HubError('model_repetition', 'PRIVATE ERROR TEXT', 502, {'finishReason': 'repetition_truncation', 'debug': 'PRIVATE SECRET'})
+        with patch.object(self.adapter, 'generate', side_effect=error), self.assertRaises(HubError) as raised:
+            self.hub.generate({'messages': [{'role': 'user', 'content': 'PRIVATE USER PROMPT'}]})
+        records = list((Path(self.temp.name) / 'Diagnostics').glob('generation-*.json'))
+        self.assertEqual(len(records), 2)
+        text = ''.join(p.read_text() for p in records)
+        for secret in ('PRIVATE USER PROMPT', 'PRIVATE ERROR TEXT', 'PRIVATE SECRET'): self.assertNotIn(secret, text)
+        request_id = raised.exception.details['requestId']
+        record = json.loads((Path(self.temp.name) / 'Diagnostics' / ('generation-' + request_id + '.json')).read_text())
+        self.assertEqual(record['response']['finishReason'], 'repetition_truncation')
+        self.assertEqual(record['outcome'], 'model_repetition')
+
+    def test_diagnostic_retention_and_failed_write_do_not_change_generation_result(self):
+        from pathlib import Path
+        folder = Path(self.temp.name) / 'Diagnostics'; folder.mkdir()
+        note = folder / 'user-notes.json'; note.write_text('keep')
+        self.hub.diagnostics.limit = 2
+        req = {'messages': [{'role': 'user', 'content': 'test'}]}
+        for _ in range(4): self.hub.generate(req)
+        self.assertEqual(len(list(folder.glob('generation-*.json'))), 2)
+        self.assertEqual(note.read_text(), 'keep')
+        with patch('ksp_aihub.diagnostics.atomic_json', side_effect=OSError('disk full')):
+            result = self.hub.generate(req)
+        self.assertTrue(result['ok'])
+        self.assertFalse(result['diagnosticSaved'])
 
 
 class GenerationHttpTests(unittest.TestCase):

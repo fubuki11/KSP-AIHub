@@ -4,6 +4,8 @@ Default endpoint: `http://127.0.0.1:18181`. Every `/v1/*` call requires `Authori
 
 ## Endpoints
 
+0.4.0 adds explicit repetition recovery reasons and correlated metadata-only diagnostics; see [DIAGNOSTICS.md](DIAGNOSTICS.md).
+
 0.3.0 generation limits, typed output errors and bounded recovery are documented in [GENERATION.md](GENERATION.md). They are additive API v1 features; older generation requests remain valid.
 
 | Method | Path | Meaning |

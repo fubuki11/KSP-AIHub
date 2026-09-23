@@ -1,11 +1,13 @@
 import copy
 from pathlib import Path
 import threading
+import time
 import uuid
 
 from .auth import AuthBroker
 from .common import HubError, identifier, loads, messages
-from .config import Configuration, GENERATION_FIELDS
+from .config import Configuration, GENERATION_FIELDS, RECOVERY_REASONS
+from .diagnostics import GenerationDiagnostics, safe_details
 from .models import ModelCatalog
 from .presets import PRESETS, connection
 from .providers import ProviderAdapters
@@ -51,6 +53,7 @@ class Hub:
         self.auth = AuthBroker(config, store or SecretStore(self.directory / "credentials"))
         self.adapters = adapters or ProviderAdapters(self.auth)
         self.catalog = ModelCatalog(self.auth)
+        self.diagnostics = GenerationDiagnostics(self.directory / "Diagnostics")
         # Runtime overrides are distinct from configured per-client defaults.
         # None is a persistent "inherit global" tombstone, including for config clients.
         self.selections = {}
@@ -196,6 +199,7 @@ class Hub:
                               baseUrl=profile["baseUrl"], protocol=profile["protocol"])
                 value.update(maxOutputTokens=profile["maxOutputTokens"], recoveryMaxOutputTokens=profile["recoveryMaxOutputTokens"],
                              timeoutSeconds=profile["timeout"], streamEnabled=profile["stream"], reasoningEffort=profile["reasoningEffort"], thinkingMode=profile["thinkingMode"],
+                             repetitionRecovery=profile["repetitionRecovery"],
                              providerManagedOutput=profile.get("flavor") == "codex" or self.config.credentials[profile["credential"]]["kind"] == "opencode_oauth")
             except HubError as error:
                 if error.code != "profile_unavailable": raise
@@ -226,20 +230,49 @@ class Hub:
         return self.ui(client)
 
     def generate(self, request):
-        if not isinstance(request, dict) or set(request) - {"clientId", "profile", "model", "format", "messages", "recovery"}:
+        if not isinstance(request, dict) or set(request) - {"clientId", "profile", "model", "format", "messages", "recovery", "recoveryReasons"}:
             raise HubError("invalid_request", "Invalid generation request fields.")
         profile_id, profile = self.resolve(request.get("clientId"), request.get("profile"), request.get("model"))
         recovery = request.get("recovery", False)
         if type(recovery) is not bool: raise HubError("invalid_request", "recovery must be a boolean.")
-        if recovery: profile["maxOutputTokens"] = min(profile["maxOutputTokens"] * 2, profile["recoveryMaxOutputTokens"])
+        reasons = request.get("recoveryReasons", [])
+        if not isinstance(reasons, list) or len(reasons) > 3 or any(not isinstance(r, str) or r not in RECOVERY_REASONS for r in reasons) or len(reasons) != len(set(reasons)):
+            raise HubError("invalid_request", "recoveryReasons must be a bounded list of distinct supported error codes.")
+        reasons = list(reasons)
+        if recovery and "output_truncated" not in reasons: reasons.append("output_truncated")
+        if len(reasons) > 3: raise HubError("invalid_request", "Too many recovery reasons.")
+        if "output_truncated" in reasons: profile["maxOutputTokens"] = min(profile["maxOutputTokens"] * 2, profile["recoveryMaxOutputTokens"])
+        if "model_repetition" in reasons:
+            policy = profile["repetitionRecovery"]
+            if policy == "disabled": raise HubError("recovery_disabled", "Repetition recovery is disabled for this profile.", 409)
+            if policy == "disable_thinking": profile.update(thinkingMode="disabled", reasoningEffort="provider_default")
+            elif policy == "low_effort": profile.update(thinkingMode="provider_default", reasoningEffort="low")
         output_format = request.get("format", "text")
         if output_format not in ("text", "json"):
             raise HubError("invalid_request", "format must be text or json.")
         conversation = messages(request.get("messages"))
         if not self.slots.acquire(blocking=False):
             raise HubError("busy", "The gateway is handling its maximum concurrent generations.", 429)
+        request_id, started = uuid.uuid4().hex, time.monotonic()
+        context = {"requestId": request_id, "profile": profile_id, "model": profile["model"],
+                   "requestStreaming": profile["stream"], "protocol": profile["protocol"],
+                   "reasoningEffort": profile["reasoningEffort"], "thinkingMode": profile["thinkingMode"],
+                   "repetitionRecovery": profile["repetitionRecovery"], "recoveryReasons": reasons}
+        def record(outcome, details):
+            return self.diagnostics.write(request_id, profile_id, profile, client_id=request.get("clientId"), output_format=output_format,
+                                          reasons=reasons, outcome=outcome, details=details, duration_ms=int((time.monotonic()-started)*1000))
         try:
             result = self.adapters.generate(profile, conversation, output_format)
-            return {"ok": True, "requestId": uuid.uuid4().hex, "profile": profile_id, "provider": profile["provider"], "model": profile["model"], **result}
+            metadata = {**context, **safe_details(result)}
+            saved = record("success", metadata)
+            return {"ok": True, "requestId": request_id, "profile": profile_id, "provider": profile["provider"], "model": profile["model"],
+                    **result, "diagnosticSaved": saved, "metadata": metadata}
+        except HubError as error:
+            error.details = {**context, **safe_details(error.details)}
+            error.details["diagnosticSaved"] = record(error.code, error.details)
+            raise
+        except Exception:
+            record("internal_error", context)
+            raise
         finally:
             self.slots.release()

@@ -20,7 +20,7 @@ class PublicBuildTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name) / "source"
         files = ["scripts/build.ps1", "src/KSPAIHub/KSPAIHub.csproj", "GameData/KSPAIHub/KSPAIHub.version",
-                 "README.md", "DESIGN.md", "PROTOCOL.md", "INSTALL.md", "MODELS.md", "GENERATION.md", "LICENSE", "examples/hub.example.json"]
+                 "README.md", "DESIGN.md", "PROTOCOL.md", "INSTALL.md", "MODELS.md", "GENERATION.md", "DIAGNOSTICS.md", "LICENSE", "examples/hub.example.json"]
         files += [str(p.relative_to(ROOT)) for p in (ROOT / "service/ksp_aihub").glob("*.py")]
         for name in files:
             destination = self.root / name

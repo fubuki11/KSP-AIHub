@@ -1,4 +1,4 @@
-# KSP AI Hub 0.3.2
+# KSP AI Hub 0.4.0
 
 **作者：fubuki11st** · **MIT License** · **KSP 1.12.5 / Windows x64**
 
@@ -23,6 +23,7 @@
 | [安装](INSTALL.md) | 从源码构建、本地 CKAN 安装、手工安装与常见错误 |
 | [模型配置](MODELS.md) | 供应商、模型目录、自定义 API 和手填模型 |
 | [生成设置](GENERATION.md) | token/超时/推理参数、流式响应与有界恢复 |
+| [重复恢复与诊断](DIAGNOSTICS.md) | 真实终止原因、针对性恢复、可关联的失败记录 |
 | [HTTP / SDK 协议](PROTOCOL.md) | 供其他 Mod 调用的 API v1 |
 | [架构](DESIGN.md) | 认证、协议、路由与消费端分层 |
 
@@ -39,7 +40,7 @@ $ksp = 'D:\steam\steamapps\common\Kerbal Space Program'
 & (Join-Path $project 'scripts\build.ps1') -KspRoot $ksp
 ```
 
-构建生成 `dist/KSPAIHub-0.3.2.zip`、独立 `.ckan` 和本地元数据仓库 ZIP。保存并退出 KSP、CKAN 后安装：
+构建生成 `dist/KSPAIHub-0.4.0.zip`、独立 `.ckan` 和本地元数据仓库 ZIP。保存并退出 KSP、CKAN 后安装：
 
 ```powershell
 & (Join-Path $project 'scripts\install-local.ps1') -KspRoot $ksp
@@ -61,7 +62,7 @@ $ksp = 'D:\steam\steamapps\common\Kerbal Space Program'
 
 ## AutoCraft 与其他 Mod
 
-AutoCraft 0.6.0 自动发现同一游戏中的 AI Hub 0.3.0+；该项目只发布独立 Hub，不包含 AutoCraft。旧 AutoCraft 0.3.1–0.4.x 可参考 `examples/autocraft.gateway.json`，按实际游戏目录调整路径。
+AutoCraft 0.7.0 自动发现同一游戏中的 AI Hub 0.4.0+，支持针对性重复恢复和任务诊断；该项目只发布独立 Hub，不包含 AutoCraft。旧消费端的 API v1 普通调用保持兼容。
 
 其他 Mod 引用 `KSPAIHub.dll`，通过 `AiHubClient.FromConnectionFile(connectionPath, consumerId)` 接入。消费端 ID 是可选的路由标签，不是 OAuth client ID 或 API Key。不要在 Unity 主线程阻塞等待网络任务，也不要未经自身验证直接执行模型输出。完整示例见 [PROTOCOL.md](PROTOCOL.md)。
 
@@ -79,7 +80,7 @@ python -m unittest discover -s (Join-Path $project 'tests') -v
 源码通过 Git 管理，安装包放在 [GitHub Releases](https://github.com/fubuki11/KSP-AIHub/releases)。准备该版本 Release 时，使用公开 HTTPS 下载地址重新构建元数据：
 
 ```powershell
-& (Join-Path $project 'scripts\build.ps1') -KspRoot $ksp -DownloadUrl 'https://github.com/fubuki11/KSP-AIHub/releases/download/v0.3.2/KSPAIHub-0.3.2.zip'
+& (Join-Path $project 'scripts\build.ps1') -KspRoot $ksp -DownloadUrl 'https://github.com/fubuki11/KSP-AIHub/releases/download/v0.4.0/KSPAIHub-0.4.0.zip'
 ```
 
 这会同步更新独立、包内及仓库内的 CKAN 元数据；不会自动上传或创建 Release。省略 `-DownloadUrl` 时仍生成适合本机安装的 `file://` 地址。`dist/` 不进入 Git 历史。

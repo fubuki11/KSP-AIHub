@@ -24,6 +24,8 @@ class PackageTests(unittest.TestCase):
             self.assertIn('GameData/KSPAIHub/Service/ksp_aihub/auth.py', names)
             self.assertIn('GameData/KSPAIHub/Service/ksp_aihub/models.py', names)
             self.assertIn('GameData/KSPAIHub/Service/ksp_aihub/presets.py', names)
+            self.assertIn('GameData/KSPAIHub/Service/ksp_aihub/diagnostics.py', names)
+            self.assertIn('GameData/KSPAIHub/DIAGNOSTICS.md', names)
             self.assertIn('GameData/KSPAIHub/MODELS.md', names)
             for name in names:
                 self.assertTrue(name == 'KSPAIHub.ckan' or name.startswith('GameData/KSPAIHub/'))

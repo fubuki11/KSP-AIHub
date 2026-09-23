@@ -6,8 +6,10 @@ from .common import HubError, endpoint, identifier, loads, origin, positive
 
 PROTOCOLS = {"openai": {"responses", "chat_completions"}, "openai_compatible": {"responses", "chat_completions", "messages", "zen"}, "anthropic": {"messages"}}
 AUTH_KINDS = {"api_key_env", "api_key_store", "oauth_managed", "opencode_oauth"}
-GENERATION_FIELDS = {"maxOutputTokens", "recoveryMaxOutputTokens", "timeout", "stream", "reasoningEffort", "thinkingMode"}
+GENERATION_FIELDS = {"maxOutputTokens", "recoveryMaxOutputTokens", "timeout", "stream", "reasoningEffort", "thinkingMode", "repetitionRecovery"}
 EFFORTS = ("provider_default", "none", "minimal", "low", "medium", "high", "xhigh", "max")
+REPETITION_POLICIES = ("disabled", "prompt_only", "disable_thinking", "low_effort")
+RECOVERY_REASONS = ("output_truncated", "invalid_json_output", "empty_model_output", "model_repetition")
 
 
 class Configuration:
@@ -76,6 +78,13 @@ class Configuration:
             profile["stream"] = profile.get("stream", True)
             profile["reasoningEffort"] = profile.get("reasoningEffort", "provider_default")
             profile["thinkingMode"] = profile.get("thinkingMode", "provider_default")
+            profile["repetitionRecovery"] = profile.get("repetitionRecovery", "prompt_only")
+            if profile["repetitionRecovery"] not in REPETITION_POLICIES:
+                raise HubError("invalid_configuration", "Unknown repetition recovery policy.")
+            if profile["repetitionRecovery"] == "disable_thinking" and profile["protocol"] != "chat_completions":
+                raise HubError("invalid_configuration", "disable_thinking recovery requires a compatible Chat Completions profile.")
+            if profile["repetitionRecovery"] == "low_effort" and profile["protocol"] not in ("chat_completions", "responses"):
+                raise HubError("invalid_configuration", "low_effort recovery requires a compatible Chat Completions/Responses profile.")
             if type(profile["stream"]) is not bool or profile["reasoningEffort"] not in EFFORTS or profile["thinkingMode"] not in ("provider_default", "enabled", "disabled"):
                 raise HubError("invalid_configuration", "Invalid streaming/reasoning settings.")
             if profile["thinkingMode"] != "provider_default" and (profile["protocol"] != "chat_completions" or profile["reasoningEffort"] != "provider_default"):

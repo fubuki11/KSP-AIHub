@@ -61,10 +61,11 @@ try {
         'GameData/KSPAIHub/INSTALL.md' = Join-Path $root 'INSTALL.md'
         'GameData/KSPAIHub/MODELS.md' = Join-Path $root 'MODELS.md'
         'GameData/KSPAIHub/GENERATION.md' = Join-Path $root 'GENERATION.md'
+        'GameData/KSPAIHub/DIAGNOSTICS.md' = Join-Path $root 'DIAGNOSTICS.md'
         'GameData/KSPAIHub/LICENSE' = Join-Path $root 'LICENSE'
         'GameData/KSPAIHub/hub.example.json' = Join-Path $root 'examples\hub.example.json'
     }
-    foreach ($name in @('__init__.py', '__main__.py', 'common.py', 'config.py', 'store.py', 'auth.py', 'providers.py', 'hub.py', 'server.py', 'models.py', 'presets.py')) {
+    foreach ($name in @('__init__.py', '__main__.py', 'common.py', 'config.py', 'store.py', 'auth.py', 'providers.py', 'hub.py', 'server.py', 'models.py', 'presets.py', 'diagnostics.py')) {
         $files["GameData/KSPAIHub/Service/ksp_aihub/$name"] = Join-Path $root "service/ksp_aihub/$name"
     }
     Write-Archive $stagedArchive $files

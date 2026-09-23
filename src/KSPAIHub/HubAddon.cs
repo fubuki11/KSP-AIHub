@@ -35,8 +35,9 @@ namespace KSPAIHub
         private static readonly string[] ZenProtocols = { "Auto (Zen)", "chat_completions", "responses", "messages" };
         private static readonly string[] Efforts = { "provider_default", "none", "minimal", "low", "medium", "high", "xhigh", "max" };
         private static readonly string[] Thinking = { "provider_default", "enabled", "disabled" };
+        private static readonly string[] Repetition = { "disabled", "prompt_only", "disable_thinking", "low_effort" };
         private bool showGeneration, streamGeneration;
-        private int effortIndex, thinkingIndex;
+        private int effortIndex, thinkingIndex, repetitionIndex;
         private string outputTokens = "16000", recoveryTokens = "32000", generationTimeout = "300";
         private Rect window = new Rect(550, 70, 600, 500);
 
@@ -146,6 +147,7 @@ namespace KSPAIHub
                     streamGeneration = result.streamEnabled;
                     effortIndex = Math.Max(0, Array.IndexOf(Efforts, result.reasoningEffort));
                     thinkingIndex = Math.Max(0, Array.IndexOf(Thinking, result.thinkingMode));
+                    repetitionIndex = Math.Max(0, Array.IndexOf(Repetition, result.repetitionRecovery));
                     status = result.routingReady ? (result.inheritsGlobal ? "Inheriting global default. " : "") + "Auth: " + result.authState : result.routeError;
                     if (modelsForProfile != result.selectedProfile)
                     {
@@ -165,7 +167,7 @@ namespace KSPAIHub
         {
             if (GUI.Button(new Rect(Screen.width - 135, 35, 125, 28), "AI Hub")) { shown = !shown; if (!shown) { apiKey = ""; GUI.FocusControl(null); } }
             if (!shown) { InputLockManager.RemoveControlLock(Lock); return; }
-            window = GUILayout.Window(GetInstanceID(), window, Draw, "KSP AI Hub 0.3.2 — fubuki11st", GUILayout.Width(600));
+            window = GUILayout.Window(GetInstanceID(), window, Draw, "KSP AI Hub 0.4.0 — fubuki11st", GUILayout.Width(600));
             bool inside = window.Contains(Event.current.mousePosition);
             if (!inside && Event.current.type == EventType.MouseDown) GUI.FocusControl(null);
             if (inside || (GUI.GetNameOfFocusedControl() ?? "").StartsWith("KSPAIHub."))
@@ -319,12 +321,14 @@ namespace KSPAIHub
             effortIndex = GUILayout.SelectionGrid(effortIndex, Efforts, 4);
             GUILayout.Label("Thinking mode (only supported Chat APIs; leave effort at provider_default)");
             thinkingIndex = GUILayout.SelectionGrid(thinkingIndex, Thinking, 3);
+            GUILayout.Label("Repetition recovery: applies only to a consumer's bounded retry, not normal requests.");
+            repetitionIndex = GUILayout.SelectionGrid(repetitionIndex, Repetition, 2);
             if (GUILayout.Button("Save generation settings for this profile"))
             {
                 int tokens, recovery, seconds;
                 if (!int.TryParse(outputTokens, out tokens) || !int.TryParse(recoveryTokens, out recovery) || !int.TryParse(generationTimeout, out seconds))
                     status = "Enter whole numbers for token limits and timeout.";
-                else Begin("generation", client.SetGenerationAsync(ui.selectedProfile, tokens, recovery, seconds, streamGeneration, Efforts[effortIndex], Thinking[thinkingIndex], cancellation.Token));
+                else Begin("generation", client.SetGenerationWithRecoveryAsync(ui.selectedProfile, tokens, recovery, seconds, streamGeneration, Efforts[effortIndex], Thinking[thinkingIndex], Repetition[repetitionIndex], cancellation.Token));
             }
         }
         private static string Arg(string value)

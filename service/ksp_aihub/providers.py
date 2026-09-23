@@ -1,5 +1,6 @@
 """Bounded protocol adapters. Error diagnostics contain metadata, never model text or keys."""
 import json
+import re
 import socket
 import time
 from http.client import HTTPException
@@ -20,12 +21,22 @@ class ProviderAdapters:
     def _tokens(value):
         return value if type(value) is int and value >= 0 else -1
 
-    def _failure(self, code, profile, result=None, reason="unknown", managed=False):
+    @staticmethod
+    def _finish_reason(value, secret=""):
+        if value is None: return None
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_:-]{1,64}", value): return "unrecognized"
+        return "redacted" if secret and secret in value else value
+
+    def _failure(self, code, profile, result=None, reason=None, managed=False):
         usage = (result or {}).get("usage") or {}
         if not isinstance(usage, dict): usage = {}
+        reason = self._finish_reason(reason, profile.get("_secret", ""))
         details = {"protocol": profile["protocol"], "finishReason": reason,
                    "outputLimit": -1 if managed else profile["maxOutputTokens"],
-                   "recoveryLimit": profile.get("recoveryMaxOutputTokens", profile["maxOutputTokens"])}
+                   "recoveryLimit": profile.get("recoveryMaxOutputTokens", profile["maxOutputTokens"]),
+                   "requestStreaming": profile.get("stream", True), "responseStreaming": profile.get("_responseStreaming"),
+                   "recoveryAllowed": code in ("output_truncated", "invalid_json_output", "empty_model_output") or
+                       (code == "model_repetition" and profile.get("repetitionRecovery", "prompt_only") != "disabled")}
         for name, value in (("inputTokens", usage.get("input_tokens", usage.get("prompt_tokens"))),
                             ("outputTokens", usage.get("output_tokens", usage.get("completion_tokens")))):
             details[name] = self._tokens(value)
@@ -33,14 +44,16 @@ class ProviderAdapters:
         details["reasoningTokens"] = self._tokens(token_details.get("reasoning_tokens")) if isinstance(token_details, dict) else -1
         descriptions = {
             "output_truncated": "Output was truncated before a complete design was returned. Increase output/recovery budget or reduce reasoning effort and response size.",
+            "model_repetition": "The provider explicitly terminated repetitive generation. No complete design was accepted; use the configured repetition recovery policy instead of only increasing tokens.",
             "model_refusal": "The provider refused or filtered this request. Change the request or model; this is not a JSON parsing failure.",
             "model_tools_unsupported": "The model requested tools instead of returning a text design. Tools are not enabled by this gateway.",
             "empty_model_output": "The provider completed without final text. Reasoning content is not a final design.",
             "invalid_json_output": "The completed response was not one valid JSON object. No partial JSON was accepted.",
-            "provider_incomplete": "The provider stream ended without explicit completion. No automatic replay was performed.",
+            "provider_incomplete": "The provider returned no explicit completion marker. No automatic replay was performed.",
+            "unsupported_finish_reason": "The provider returned an unrecognized termination marker. No partial design was accepted.",
             "unsupported_model_output": "The provider returned an unsupported response structure.",
         }
-        info = "limit=%s, output_tokens=%s, reasoning_tokens=%s" % (
+        info = "finish_reason=%s, limit=%s, output_tokens=%s, reasoning_tokens=%s" % (reason if reason is not None else "absent",
             "provider-managed" if managed else details["outputLimit"], details["outputTokens"], details["reasoningTokens"])
         raise HubError(code, descriptions[code] + " (" + info + ")", 502, details)
 
@@ -66,6 +79,7 @@ class ProviderAdapters:
         conversation = [dict(m) for m in messages if m["role"] != "system"]
         if not conversation: raise HubError("invalid_request", "At least one user/assistant message is required.")
         headers, secret = self.broker.headers(profile)
+        profile["_secret"] = secret
         managed = protocol == "responses" and (profile.get("flavor") == "codex" or self.broker.config.credentials[profile["credential"]]["kind"] == "opencode_oauth")
         streaming = profile.get("stream", True)
         effort, thinking = profile.get("reasoningEffort", "provider_default"), profile.get("thinkingMode", "provider_default")
@@ -95,7 +109,8 @@ class ProviderAdapters:
         deadline = time.monotonic() + profile["timeout"]
         try:
             with self.opener.open(request, timeout=profile["timeout"]) as response:
-                if "text/event-stream" in response.headers.get("Content-Type", "").lower():
+                profile["_responseStreaming"] = "text/event-stream" in response.headers.get("Content-Type", "").lower()
+                if profile["_responseStreaming"]:
                     result = self._stream(response, protocol, deadline)
                 else:
                     raw = response.read(2000001)
@@ -107,11 +122,12 @@ class ProviderAdapters:
             if not isinstance(usage, dict): raise ValueError
             if protocol == "chat_completions":
                 choice = result["choices"][0]; message = choice["message"]; reason = choice.get("finish_reason")
+                if reason == "repetition_truncation": self._failure("model_repetition", profile, result, reason, managed)
                 if reason in ("length", "max_tokens"): self._failure("output_truncated", profile, result, reason, managed)
-                if reason == "content_filter" or message.get("refusal"): self._failure("model_refusal", profile, result, "refusal", managed)
+                if reason == "content_filter" or message.get("refusal"): self._failure("model_refusal", profile, result, reason, managed)
                 if reason in ("tool_calls", "function_call") or message.get("tool_calls") or message.get("function_call"):
-                    self._failure("model_tools_unsupported", profile, result, "tools", managed)
-                if reason != "stop": self._failure("provider_incomplete", profile, result, "missing_stop", managed)
+                    self._failure("model_tools_unsupported", profile, result, reason, managed)
+                if reason != "stop": self._failure("provider_incomplete" if reason is None else "unsupported_finish_reason", profile, result, reason, managed)
                 text = message.get("content")
                 if isinstance(text, list):
                     if any(not isinstance(p, dict) or p.get("type") != "text" or not isinstance(p.get("text"), str) for p in text): raise ValueError
@@ -119,32 +135,38 @@ class ProviderAdapters:
                 input_tokens, output_tokens = usage.get("prompt_tokens"), usage.get("completion_tokens")
             elif protocol == "messages":
                 reason = result.get("stop_reason")
+                if reason == "repetition_truncation": self._failure("model_repetition", profile, result, reason, managed)
                 if reason == "max_tokens": self._failure("output_truncated", profile, result, reason, managed)
                 if reason == "refusal": self._failure("model_refusal", profile, result, reason, managed)
                 if reason == "tool_use" or any(p.get("type") == "tool_use" for p in result.get("content", [])):
-                    self._failure("model_tools_unsupported", profile, result, "tools", managed)
-                if reason not in ("end_turn", "stop_sequence"): self._failure("provider_incomplete", profile, result, "missing_stop", managed)
+                    self._failure("model_tools_unsupported", profile, result, reason, managed)
+                if reason not in ("end_turn", "stop_sequence"): self._failure("provider_incomplete" if reason is None else "unsupported_finish_reason", profile, result, reason, managed)
                 text = "".join(p["text"] for p in result.get("content", []) if p.get("type") == "text")
                 input_tokens, output_tokens = usage.get("input_tokens"), usage.get("output_tokens")
             else:
                 reason = (result.get("incomplete_details") or {}).get("reason")
+                if reason == "repetition_truncation": self._failure("model_repetition", profile, result, reason, managed)
                 if reason == "max_output_tokens": self._failure("output_truncated", profile, result, reason, managed)
                 if reason == "content_filter": self._failure("model_refusal", profile, result, reason, managed)
-                if result.get("status") != "completed": self._failure("provider_incomplete", profile, result, "missing_completion", managed)
+                if result.get("status") != "completed": self._failure("provider_incomplete", profile, result, reason, managed)
                 output = result.get("output", [])
-                if any(p.get("type") in ("function_call", "custom_tool_call") for p in output): self._failure("model_tools_unsupported", profile, result, "tools", managed)
+                if any(p.get("type") in ("function_call", "custom_tool_call") for p in output): self._failure("model_tools_unsupported", profile, result, reason, managed)
                 contents = [p for item in output if item.get("type") == "message" and item.get("role") == "assistant" for p in item.get("content", [])]
-                if any(p.get("type") == "refusal" for p in contents): self._failure("model_refusal", profile, result, "refusal", managed)
+                if any(p.get("type") == "refusal" for p in contents): self._failure("model_refusal", profile, result, reason, managed)
                 text = "".join(p.get("text", "") for p in contents if p.get("type") == "output_text")
                 input_tokens, output_tokens = usage.get("input_tokens"), usage.get("output_tokens")
-            if text is None or text == "": self._failure("empty_model_output", profile, result, "empty_text", managed)
+            if text is None or text == "": self._failure("empty_model_output", profile, result, reason, managed)
             if not isinstance(text, str) or secret in text: raise ValueError
             json_text = ""
             if output_format == "json":
                 try: json_text = self._json_object(text)
-                except (HubError, ValueError, TypeError): self._failure("invalid_json_output", profile, result, "invalid_json", managed)
+                except (HubError, ValueError, TypeError): self._failure("invalid_json_output", profile, result, reason, managed)
+            token_details = usage.get("output_tokens_details", usage.get("completion_tokens_details", {})) or {}
             return {"text": text, "jsonText": json_text, "inputTokens": self._tokens(input_tokens), "outputTokens": self._tokens(output_tokens),
-                    "outputLimit": -1 if managed else profile["maxOutputTokens"], "providerManagedOutput": managed}
+                    "outputLimit": -1 if managed else profile["maxOutputTokens"], "providerManagedOutput": managed,
+                    "finishReason": self._finish_reason(reason, secret), "requestStreaming": streaming,
+                    "responseStreaming": profile.get("_responseStreaming"),
+                    "reasoningTokens": self._tokens(token_details.get("reasoning_tokens")) if isinstance(token_details, dict) else -1}
         except HTTPError as error:
             status = error.code; error.close()
             raise HubError("provider_error", f"Provider returned HTTP {status}; no fallback or retry was performed.", 502, {"httpStatus": status}) from None
@@ -157,8 +179,11 @@ class ProviderAdapters:
             raise HubError("provider_connection_error", "Provider connection failed; no fallback or retry was performed.", 502) from None
         except HubError as error:
             if error.code == "invalid_json":
-                raise HubError("invalid_provider_response", "Provider envelope was not valid JSON.", 502) from None
-            raise
+                error = HubError("invalid_provider_response", "Provider envelope was not valid JSON.", 502)
+            error.details.setdefault("protocol", protocol)
+            error.details.setdefault("requestStreaming", streaming)
+            if "_responseStreaming" in profile: error.details.setdefault("responseStreaming", profile["_responseStreaming"])
+            raise error from None
         except (KeyError, IndexError, TypeError, ValueError, AttributeError):
             self._failure("unsupported_model_output", profile, managed=managed)
 

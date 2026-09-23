@@ -7,10 +7,10 @@ from .common import HubError, endpoint, identifier, origin
 PRESETS = {
     "openai": {"label": "OpenAI", "provider": "openai", "protocol": "responses", "baseUrl": "https://api.openai.com/v1"},
     "anthropic": {"label": "Anthropic", "provider": "anthropic", "protocol": "messages", "baseUrl": "https://api.anthropic.com/v1", "modelsFormat": "anthropic"},
-    "deepseek": {"label": "DeepSeek", "provider": "openai_compatible", "protocol": "chat_completions", "baseUrl": "https://api.deepseek.com/v1", "reasoningEffort": "low"},
-    "mimo": {"label": "Xiaomi MiMo", "provider": "openai_compatible", "protocol": "chat_completions", "baseUrl": "https://api.xiaomimimo.com/v1", "keyHeader": "api-key"},
+    "deepseek": {"label": "DeepSeek", "provider": "openai_compatible", "protocol": "chat_completions", "baseUrl": "https://api.deepseek.com/v1", "reasoningEffort": "low", "repetitionRecovery": "low_effort"},
+    "mimo": {"label": "Xiaomi MiMo", "provider": "openai_compatible", "protocol": "chat_completions", "baseUrl": "https://api.xiaomimimo.com/v1", "keyHeader": "api-key", "repetitionRecovery": "disable_thinking"},
     "gemini": {"label": "Google Gemini", "provider": "openai_compatible", "protocol": "chat_completions", "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
-               "modelsUrl": "https://generativelanguage.googleapis.com/v1beta/models", "modelsFormat": "gemini", "reasoningEffort": "low"},
+               "modelsUrl": "https://generativelanguage.googleapis.com/v1beta/models", "modelsFormat": "gemini", "reasoningEffort": "low", "repetitionRecovery": "low_effort"},
     "zen": {"label": "OpenCode Zen", "provider": "openai_compatible", "protocol": "zen", "baseUrl": "https://opencode.ai/zen/v1"},
     "custom": {"label": "Custom compatible API", "provider": "openai_compatible", "protocol": "chat_completions", "baseUrl": ""},
 }

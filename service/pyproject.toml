@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ksp-aihub"
-version = "0.3.2"
+version = "0.4.0"
 authors = [{name = "fubuki11st"}]
 description = "Provider-neutral local AI gateway for KSP mods"
 requires-python = ">=3.10"

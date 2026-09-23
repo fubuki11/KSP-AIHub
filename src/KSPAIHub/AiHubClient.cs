@@ -42,6 +42,7 @@ namespace KSPAIHub.API
         public double timeoutSeconds = 0;
         public bool streamEnabled = false, providerManagedOutput = false;
         public string reasoningEffort = "provider_default", thinkingMode = "provider_default";
+        public string repetitionRecovery = "prompt_only";
     }
 
     public sealed class AiHubClient
@@ -101,6 +102,15 @@ namespace KSPAIHub.API
             string body = "{\"profile\":" + Quote(profile) + ",\"settings\":{\"maxOutputTokens\":" + tokens +
                 ",\"recoveryMaxOutputTokens\":" + recoveryTokens + ",\"timeout\":" + timeoutSeconds +
                 ",\"stream\":" + (stream ? "true" : "false") + ",\"reasoningEffort\":" + Quote(effort) + ",\"thinkingMode\":" + Quote(thinking) + "}}";
+            return RequestAsync("POST", "/v1/generation-settings", body, cancellation);
+        }
+        public Task<string> SetGenerationWithRecoveryAsync(string profile, int tokens, int recoveryTokens, int timeoutSeconds, bool stream,
+            string effort, string thinking, string repetition, CancellationToken cancellation = default(CancellationToken))
+        {
+            string body = "{\"profile\":" + Quote(profile) + ",\"settings\":{\"maxOutputTokens\":" + tokens +
+                ",\"recoveryMaxOutputTokens\":" + recoveryTokens + ",\"timeout\":" + timeoutSeconds +
+                ",\"stream\":" + (stream ? "true" : "false") + ",\"reasoningEffort\":" + Quote(effort) +
+                ",\"thinkingMode\":" + Quote(thinking) + ",\"repetitionRecovery\":" + Quote(repetition) + "}}";
             return RequestAsync("POST", "/v1/generation-settings", body, cancellation);
         }
         public Task<string> AddProfileAsync(string preset, string id, string baseUrl, string protocol, string modelsFormat,
